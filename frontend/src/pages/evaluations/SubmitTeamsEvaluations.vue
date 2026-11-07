@@ -119,6 +119,7 @@
 </template>
 
 <script setup lang="ts">
+import axios from 'axios'
 import { onMounted, ref } from 'vue'
 import { findStudentsByTeamId } from '@/apis/student'
 import type { Student, FindStudentByTeamIdResponse } from '@/apis/student/types'
@@ -182,7 +183,8 @@ onMounted(async () => {
 async function loadStudents() {
   // On the back end, the page number starts from 0, so subtract 1 here
   const result: FindStudentByTeamIdResponse = await findStudentsByTeamId(teamId.value)
-  students.value = result.data
+  // A deactivated team member is not evaluated (BR-deactivated-student-evaluation)
+  students.value = result.data.filter((student) => student.enabled)
 }
 
 // Load criteria information
@@ -202,9 +204,16 @@ async function prepareStartingPeerEvaluations() {
     previousWeek.value
   )
 
+  // Leave out an evaluation of a team member deactivated since it was submitted: it stays stored, but
+  // re-submitting it would be refused
+  const activeStudentIds = new Set(students.value.map((student) => student.id))
+  const existingEvaluations = result.data.filter((evaluation) =>
+    activeStudentIds.has(evaluation.evaluateeId)
+  )
+
   // If the student has already submitted evaluations for the current week, load them
-  if (result.data.length > 0) {
-    peerEvalutions.value = result.data
+  if (existingEvaluations.length > 0) {
+    peerEvalutions.value = existingEvaluations
     isNewSubmission = false
   } else {
     // If not, create a new set of evaluations
@@ -233,10 +242,16 @@ async function submitPeerEvaluations() {
       return result.data
     })
     isLoading.value = true
-    peerEvalutions.value = await Promise.all(submitPromises) // Wait for all promises to resolve
+    try {
+      peerEvalutions.value = await Promise.all(submitPromises) // Wait for all promises to resolve
+    } catch (error) {
+      await reloadAfterRefusal(error)
+      return
+    } finally {
+      isLoading.value = false
+    }
     isNewSubmission = false // Change to update mode
     ElMessage.success('Peer evaluations submitted successfully')
-    isLoading.value = false
 
     // Send an submission confirmation email to the submitter
     await sendPeerEvaluationSubmissionConfirmationEmail(previousWeekRange.value)
@@ -253,10 +268,26 @@ async function updatePeerEvaluations() {
     })
 
     isLoading.value = true
-    peerEvalutions.value = await Promise.all(submitPromises) // Wait for all promises to resolve
+    try {
+      peerEvalutions.value = await Promise.all(submitPromises) // Wait for all promises to resolve
+    } catch (error) {
+      await reloadAfterRefusal(error)
+      return
+    } finally {
+      isLoading.value = false
+    }
     ElMessage.success('Peer evaluations updated successfully')
-    isLoading.value = false
   }
+}
+
+// A refused evaluation (400), e.g. of a team member deactivated after the form was shown (UC-EVA-submit-evaluation
+// 9a): request.ts has shown the reason, so reload the team members and evaluations and let the student try again
+async function reloadAfterRefusal(error: unknown) {
+  if (!(axios.isAxiosError(error) && error.response?.status === 400)) {
+    throw error
+  }
+  await loadStudents()
+  await prepareStartingPeerEvaluations()
 }
 </script>
 
