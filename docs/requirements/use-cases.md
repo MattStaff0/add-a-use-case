@@ -1488,9 +1488,13 @@ Details:
 **Business Rules:** BR-student-lifecycle
 
 **Associated Information:**
-- Consequence of the deactivation: The student will no longer be able to log in or submit weekly activity reports and peer evaluations, but the student's account and her previously submitted work are kept in the system. Deactivation will NOT remove the student from the system, and the account can be reactivated in the future (UC-STU-reactivate-student: Reactivate a student). This is distinct from deletion (UC-STU-delete-student: Delete a student), which is a physical, unrecoverable delete. The course admin or instructor shall be able to cancel the use case at any time prior to submitting it.
+- Consequences of the deactivation (what the system shows at step 4):
+  - The student will no longer be able to log in or submit weekly activity reports and peer evaluations.
+  - She stays on her team. Deactivation does not remove her from it; removing a student from a team is UC-TEA-remove-student: Remove a student from a team, a separate course admin action (BR-team-admin-only).
+  - Her account and her previously submitted work are kept in the system. Deactivation will NOT remove the student from the system, and the account can be reactivated in the future (UC-STU-reactivate-student: Reactivate a student). This is distinct from deletion (UC-STU-delete-student: Delete a student), which is a physical, unrecoverable delete.
+- The course admin or instructor shall be able to cancel the use case at any time prior to submitting it.
 
-**Related Use Cases:** UC-STU-delete-student: Delete a student; UC-STU-reactivate-student: Reactivate a student
+**Related Use Cases:** UC-STU-delete-student: Delete a student; UC-STU-reactivate-student: Reactivate a student; UC-TEA-remove-student: Remove a student from a team
 **Assumptions:**
 **Open Issues:**
 
@@ -1526,6 +1530,7 @@ Details:
 **Business Rules:** BR-student-lifecycle
 
 **Associated Information:**
+- Reactivation restores the student's access and changes nothing else. Deactivation left her on her team (UC-STU-deactivate-student), so she returns to it; if the course admin removed her from it while she was deactivated (UC-TEA-remove-student), reactivation does not put her back, and she is assigned to a team through UC-TEA-assign-students.
 - The course admin or instructor shall be able to cancel the use case at any time prior to submitting it.
 
 **Related Use Cases:** UC-STU-delete-student: Delete a student; UC-STU-deactivate-student: Deactivate a student
