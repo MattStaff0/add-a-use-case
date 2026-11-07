@@ -13,14 +13,20 @@
     <el-form-item label="Username:" prop="username">
       <el-input v-model="studentBeingEdited.username"></el-input>
     </el-form-item>
-    <el-form-item label="Status:" prop="enabled">
-      <el-switch
-        v-model="studentBeingEdited.enabled"
-        inline-prompt
-        active-text="Enabled"
-        inactive-text="Disabled"
-        style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949"
-      />
+    <el-form-item label="Status:">
+      <el-tag v-if="studentBeingEdited.enabled" type="success">Active</el-tag>
+      <el-tag v-else type="danger">Deactivated</el-tag>
+      <el-button
+        v-if="studentBeingEdited.enabled"
+        type="danger"
+        plain
+        size="small"
+        style="margin-left: 12px"
+        :loading="deactivating"
+        @click="deactivateExistingStudent()"
+      >
+        Deactivate
+      </el-button>
     </el-form-item>
     <el-form-item label="First Name:" prop="firstName">
       <el-input v-model="studentBeingEdited.firstName"></el-input>
@@ -42,11 +48,12 @@
 </template>
 
 <script setup lang="ts">
-import { ElMessage } from 'element-plus'
+import axios from 'axios'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import type { Student } from '@/apis/student/types'
 import type { FormInstance } from 'element-plus'
-import { findStudentById, updateStudent } from '@/apis/student'
-import { ref, onMounted } from 'vue'
+import { deactivateStudent, findStudentById, updateStudent } from '@/apis/student'
+import { h, ref, onMounted } from 'vue'
 
 const { studentId } = defineProps(['studentId'])
 const emit = defineEmits(['close-dialog'])
@@ -74,7 +81,6 @@ const rules = {
       trigger: 'blur'
     }
   ],
-  enabled: [{ required: true, message: 'Please select the status of the user.', trigger: 'blur' }],
   firstName: [
     { required: true, message: 'Please provide the first name of the user.', trigger: 'blur' }
   ],
@@ -103,6 +109,53 @@ async function loadStudent(studentId: number) {
 onMounted(() => {
   loadStudent(studentId) // Load the artifact to be edited
 })
+
+const deactivating = ref(false)
+
+// What deactivation does, shown before the instructor confirms (UC-STU-deactivate-student step 4)
+const deactivationConsequences = [
+  'They will no longer be able to log in or submit weekly activity reports and peer evaluations. If they are logged in now, their session stops working at its next request.',
+  'They stay on their team. Removing a student from a team is a separate course admin action.',
+  'Their teammates no longer evaluate them and are no longer asked to. The peer evaluation report lists them only for weeks in which they received a peer evaluation.',
+  'They no longer owe weekly activity reports or peer evaluations and receive no reminders. A teammate who did not evaluate them in a past week no longer owes that evaluation.',
+  'Their account and submitted work are kept. This is not a deletion, and the account can be reactivated later.'
+]
+
+// Deactivating neither saves nor discards the other fields of this form
+async function deactivateExistingStudent() {
+  const name = `${studentBeingEdited.value.firstName} ${studentBeingEdited.value.lastName}`
+  try {
+    await ElMessageBox.confirm(
+      h('div', [
+        h('p', `Deactivate ${name}?`),
+        h(
+          'ul',
+          { style: 'padding-left: 18px' },
+          deactivationConsequences.map((consequence) => h('li', consequence))
+        )
+      ]),
+      'Deactivate Student',
+      { confirmButtonText: 'Deactivate', cancelButtonText: 'Cancel', type: 'warning' }
+    )
+  } catch {
+    return // Cancelled (5a): nothing is sent
+  }
+
+  deactivating.value = true
+  try {
+    const result = await deactivateStudent(studentBeingEdited.value.id as number)
+    studentBeingEdited.value.enabled = result.data.enabled
+    ElMessage.success(`${name} has been deactivated.`)
+  } catch (error) {
+    // Already deactivated by someone else (6a): request.ts has shown the message, so only the status is refreshed
+    if (axios.isAxiosError(error) && error.response?.status === 409) {
+      const result = await findStudentById(studentBeingEdited.value.id as number)
+      studentBeingEdited.value.enabled = result.data.enabled
+    }
+  } finally {
+    deactivating.value = false
+  }
+}
 
 async function updateExistingStudent() {
   await studentForm.value!.validate() // Validate the form
