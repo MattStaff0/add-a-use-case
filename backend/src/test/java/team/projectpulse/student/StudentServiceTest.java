@@ -151,19 +151,13 @@ class StudentServiceTest {
     }
 
     @Test
-    void testInstructorUpdatesStudent() {
+    void testInstructorUpdatesStudentButNotWhetherSheIsActive() {
         // Given
+        // A student is deactivated only through UC-STU-deactivate-student, so an edit that says enabled = false,
+        // even from her instructor, changes her details and leaves her active
         Student update = new Student("john", "John (updated)", "Smith (updated)", "j.smith@abc.edu (updated)", "", false, "admin student");
         given(this.studentRepository.findById(1)).willReturn(Optional.of(this.students.get(0)));
         given(this.studentRepository.save(any(Student.class))).willReturn(this.students.get(0));
-
-        Instructor instructor = new Instructor();
-        instructor.setRoles("instructor");
-        MyUserPrincipal myUserPrincipal = new MyUserPrincipal(instructor);
-
-        SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
-        securityContext.setAuthentication(new UsernamePasswordAuthenticationToken(myUserPrincipal, null, myUserPrincipal.getAuthorities()));
-        SecurityContextHolder.setContext(securityContext);
 
         // When
         Student result = this.studentService.updateStudent(1, update);
@@ -173,8 +167,7 @@ class StudentServiceTest {
         assertThat(result.getFirstName()).isEqualTo(update.getFirstName());
         assertThat(result.getLastName()).isEqualTo(update.getLastName());
         assertThat(result.getEmail()).isEqualTo(update.getEmail());
-//        assertThat(result.getRoles()).isEqualTo(update.getRoles());
-        assertThat(result.isEnabled()).isEqualTo(update.isEnabled());
+        assertThat(result.isEnabled()).isTrue();
     }
 
     @Test
