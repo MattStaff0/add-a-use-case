@@ -148,10 +148,11 @@ async function deactivateExistingStudent() {
     ElMessage.success(`${name} has been deactivated.`)
   } catch (error) {
     // Already deactivated by someone else (6a): request.ts has shown the message, so only the status is refreshed
-    if (axios.isAxiosError(error) && error.response?.status === 409) {
-      const result = await findStudentById(studentBeingEdited.value.id as number)
-      studentBeingEdited.value.enabled = result.data.enabled
+    if (!(axios.isAxiosError(error) && error.response?.status === 409)) {
+      throw error
     }
+    const result = await findStudentById(studentBeingEdited.value.id as number)
+    studentBeingEdited.value.enabled = result.data.enabled
   } finally {
     deactivating.value = false
   }
