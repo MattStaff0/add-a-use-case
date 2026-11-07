@@ -67,7 +67,13 @@
       style="margin-top: 20px; justify-content: flex-end"
     />
     <!-- Dialog for editing student -->
-    <el-dialog v-model="dialogVisible" title="Edit a student" width="30%" destroy-on-close>
+    <el-dialog
+      v-model="dialogVisible"
+      title="Edit a student"
+      width="30%"
+      destroy-on-close
+      @closed="loadStudents()"
+    >
       <EditStudentForm
         :studentId="studentBeingEditedId"
         @close-dialog="closeDialog"
@@ -160,8 +166,7 @@ function showEditStudentDialog(student: Student) {
 }
 
 function closeDialog() {
-  dialogVisible.value = false
-  loadStudents()
+  dialogVisible.value = false // The dialog's closed event reloads the list, however the dialog was closed
 }
 
 import { useRouter } from 'vue-router'
