@@ -1494,6 +1494,7 @@ Details:
   - Her teammates no longer evaluate her and are no longer asked to; the course section's peer evaluation report lists her only for the weeks in which she received a peer evaluation (BR-deactivated-student-evaluation).
   - She no longer owes weekly activity reports or peer evaluations and receives no reminders. Who owes a peer evaluation is read against her team as it is now, including for past weeks, so a teammate who did not evaluate her in a past week no longer owes that evaluation (BR-submission-owed).
   - Her account and her previously submitted work are kept in the system. Deactivation will NOT remove the student from the system, and the account can be reactivated in the future (UC-STU-reactivate-student: Reactivate a student). This is distinct from deletion (UC-STU-delete-student: Delete a student), which is a physical, unrecoverable delete.
+- A student is deactivated only through this use case. Editing a student's other details does not change whether her account is active, so the warning at step 4 and the extensions above cannot be bypassed.
 - The course admin or instructor shall be able to cancel the use case at any time prior to submitting it.
 
 **Related Use Cases:** UC-STU-delete-student: Delete a student; UC-STU-reactivate-student: Reactivate a student; UC-TEA-remove-student: Remove a student from a team
