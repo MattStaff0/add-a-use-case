@@ -1476,6 +1476,9 @@ Details:
 - **6a. The student's account is already deactivated** (e.g., another course admin or instructor deactivated her after step 2):
   - 6a1. The system makes no change and informs the course admin or instructor that the student is already deactivated.
   - 6a2. Use case ends.
+- **6b. The user is neither the course admin of the student's course nor an instructor assigned to the student's course section:**
+  - 6b1. The system denies the deactivation, makes no change, and informs the user that she is not authorized to deactivate this student (BR-student-lifecycle, FR-SEC-deny-unauthorized).
+  - 6b2. Use case ends.
 
 **Priority:** Low
 **Frequency of Use:** Rare. Occurs occasionally when a student withdraws from a course section.
