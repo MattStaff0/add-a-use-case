@@ -59,8 +59,17 @@ classDiagram
 - Backend, `security/`: new `ActiveAccountJwtValidator`, installed on the `jwtDecoder()` bean in [`SecurityConfiguration`](../../backend/src/main/java/team/projectpulse/security/SecurityConfiguration.java); new `authorizationmanagers/StudentLifecycleAuthorizationManager`, the same thin shape as `StudentInstructorAuthorizationManager`.
 - Backend, `system/exception/`: new `StudentAlreadyDeactivatedException`, mapped in `ExceptionHandlerAdvice`.
 - Backend, `evaluation/`: [`EvaluationService`](../../backend/src/main/java/team/projectpulse/evaluation/EvaluationService.java), for BR-deactivated-student-evaluation.
-- Frontend: [`apis/student/index.ts`](../../frontend/src/apis/student/index.ts) gains `deactivateStudent`; [`EditStudentForm.vue`](../../frontend/src/pages/students/EditStudentForm.vue) replaces the Status dropdown with read-only status text and a **Deactivate** button; [`SubmitTeamsEvaluations.vue`](../../frontend/src/pages/evaluations/SubmitTeamsEvaluations.vue) lists only teammates whose account is active.
-- Reused unchanged: `SubmissionStatusService.findOwedItems` (already skips a disabled student, BR-submission-owed), `MyUserPrincipal.isEnabled` (login), and the shared Axios instance's `401` / `403` / `409` handling in `frontend/src/utils/request.ts`.
+- Frontend: [`apis/student/index.ts`](../../frontend/src/apis/student/index.ts) gains `deactivateStudent`.
+- [`EditStudentForm.vue`](../../frontend/src/pages/students/EditStudentForm.vue) replaces the Status dropdown with read-only status text and a **Deactivate** button, shown only while the student is active.
+  - The confirmation lists every consequence in the use case's Associated Information (step 4).
+  - Deactivating neither saves nor discards the form's other fields.
+  - After a `409` (6a), the form reloads the student so the status reads Deactivated.
+  - The form still sends `enabled` on save, unchanged, and the server ignores it.
+- [`SubmitTeamsEvaluations.vue`](../../frontend/src/pages/evaluations/SubmitTeamsEvaluations.vue) drops teammates whose `StudentDto.enabled` is false. It drops them both from the teammates it lists and from the existing evaluations it loads for the week, so a re-submission never sends an update for a deactivated teammate. When a submit or update is refused with `400` (UC-EVA-submit-evaluation 9a), it reloads the teammates and evaluations (9a2).
+- Reused unchanged:
+  - `SubmissionStatusService.findOwedItems`, which already skips a disabled student (BR-submission-owed); both `WeeklyReminderScheduler` and `ReminderController` go through it, so she gets no reminders;
+  - `MyUserPrincipal.isEnabled` (login);
+  - the shared Axios instance in `frontend/src/utils/request.ts`, where `401` redirects to login, `403` routes to the forbidden page, and anything else, `409` included, raises a toast.
 
 ## Sequence
 
@@ -125,15 +134,32 @@ sequenceDiagram
 
 **A dedicated route, and the generic update stops changing `enabled`.** Deactivation has its own `PATCH .../deactivate`, and `updateStudent` no longer copies `enabled`, because the use case's Associated Information says a student is deactivated only through it. Rejected: keeping `enabled` on `PUT /students/{studentId}` and adding the warning in the UI only, which leaves the warning, 6a, and 6b one API call away from bypass. Accepted cost: the dropdown was also the only reactivation path, so until UC-STU-reactivate-student is built a student can be reactivated only in the database (OI-65). Dropping the `enabled` branch also removes `StudentService`'s `SecurityContextHolder` read, one of the three services OI-63 lists.
 
-**An open session ends at its next request: a JWT validator.** `ActiveAccountJwtValidator` is an `OAuth2TokenValidator<Jwt>` composed with the default validators on the `jwtDecoder()` bean; it loads the user by the token's `userId` claim and fails the token if the user is missing or disabled, which the resource server reports as `401` through the existing `CustomBearerTokenAuthenticationEntryPoint`. Rejected: a `JwtAuthenticationConverter` that throws, which mixes authentication into authority mapping; a separate `OncePerRequestFilter`, a second place authentication is decided; a token-version claim or revocation list, which needs a column and a migration; and accepting the two-hour window, which FR-SEC-active-account forbids ("regardless of otherwise-valid credentials"). Accepted cost: one primary-key lookup per authenticated request. Side effect, same requirement and no extra code: a deactivated instructor's open session ends the same way.
+**An open session ends at its next request: a JWT validator.** `ActiveAccountJwtValidator` is an `OAuth2TokenValidator<Jwt>` composed with the default validators on the `jwtDecoder()` bean; it loads the user by the token's `userId` claim and fails the token if the user is missing or disabled, which the resource server reports as `401` through the existing `CustomBearerTokenAuthenticationEntryPoint`. A missing or non-numeric `userId` claim is a failure too: the validator returns a failure result and never throws, like every guard in the filter chain. Rejected: a `JwtAuthenticationConverter` that throws, which mixes authentication into authority mapping; a separate `OncePerRequestFilter`, a second place authentication is decided; a token-version claim or revocation list, which needs a column and a migration; and accepting the two-hour window, which FR-SEC-active-account forbids ("regardless of otherwise-valid credentials"). Accepted cost: one primary-key lookup per authenticated request. Side effect, same requirement and no extra code: a deactivated instructor's open session ends the same way.
 
-**Who may deactivate.** `canChangeStudentStatus(studentId)` is true when the caller is the course admin of the student's course (`section.course.courseAdmin`) or is among her course section's instructors, and false for an id that names no student; it never throws (it runs in the filter chain, see [Authorization](architectural-design.md#authorization)). The route carries only the student's id, so the route rule is the scope check, and the service loads the student by that verified id. Rejected: `UserOwnershipAuthorizationManager`, the generic update's rule, which also admits the student herself; and `isCurrentUserInstructorOfStudentSection` alone, which refuses a course admin not listed among the course section's instructors although BR-student-lifecycle admits her.
+**Who may deactivate.** `canChangeStudentStatus(studentId)`:
+- is true when the caller (`UserUtils.getUserId`) is the course admin of the student's course (`section.course.courseAdmin`, compared null-safely) or is among her course section's instructors;
+- is false for an id that names no student;
+- never throws, because it runs in the filter chain (see [Authorization](architectural-design.md#authorization)).
 
-**Already deactivated is a `409`, not a silent success.** 6a arises when someone else deactivated her after step 2; answering `200` would tell the instructor she did something she did not. Rejected: idempotent success.
+The route rule sits with the other `/students` rules, and no other `PATCH /students` matcher exists to shadow it.
+
+**The route rule is the scope check here.** Authorization point 2 exists because a URL can pair a container id the caller owns with an object id from another container. This URL names one object, the student, and the rule resolves *that* student's course section and course itself, so the mismatch point 2 guards against cannot arise. The service loads the student by the verified id, as `findStudentById` already does on `GET /students/{studentId}`.
+
+Rejected: a second, caller-scoped finder in the service. It would duplicate the rule's two-branch check (course admin, or instructor) in a query. The integration tests for 6b pin the rule, so removing it fails a test rather than opening the route. Rejected: `UserOwnershipAuthorizationManager`, the generic update's rule, which also admits the student herself; and `isCurrentUserInstructorOfStudentSection` alone, which refuses a course admin not listed among the course section's instructors although BR-student-lifecycle admits her.
+
+**Already deactivated is a `409`, not a silent success.** 6a arises when someone else deactivated the student after step 2, and answering `200` would tell the instructor they did something they didn't. The checks run in this order: an inactive caller or invalid token gets `401`, then the route rule (6b) gives `403`, then the service (6a) gives `409`. So an unauthorized caller never learns the student's status.
+
+Rejected: idempotent success. Accepted risk: two simultaneous requests can both read `enabled = true` and both return `200`. Core entities carry no `@Version`, and the outcome, a deactivated student, is the same either way.
 
 **A deactivated student in the section report.** The weekly report keeps a student on a team when her account is active or she received at least one peer evaluation that week (BR-deactivated-student-evaluation), so her history stays and the weeks after she left show no empty row. Rejected: recording when she was deactivated and listing her for the weeks before it, which needs a column, a Flyway migration, and seed changes to tell apart weeks the rule already treats the same way.
 
-**An evaluation of a deactivated student is refused on update as well as on add.** BR-deactivated-student-evaluation says such an evaluation "is not accepted", and BR-evaluation-editable-until-close makes a re-submission an update. Rejected: refusing only new evaluations, which would let an evaluation form opened before deactivation keep rewriting her scores until the window closes.
+**An evaluation of a deactivated student is refused on update as well as on add, and kept.**
+- **One record per evaluatee.** A peer evaluation is one record per evaluator, evaluatee and week, and an update targets one record by id. So refusing her record leaves a teammate free to edit the rest of the week (BR-evaluation-editable-until-close).
+- **Her record is kept.** The evaluation she received before deactivation stays stored and reported, unchanged (BR-deactivated-student-evaluation).
+- **The form never asks.** It drops her record from what it re-submits, so a teammate's normal edit never hits the refusal.
+- **Completeness stays in the form.** The server has no "every team member" check. Completeness is the form's, and the form lists only active teammates.
+
+Rejected: refusing only new evaluations, which would let a form opened before deactivation keep rewriting her scores until the window closes.
 
 ## Data model
 
@@ -142,7 +168,7 @@ No delta. `enabled` already lives on `PeerEvaluationUser`, which `Student` exten
 ## Reuse & cross-cutting
 
 - Authorization: a new `AuthorizationManager` delegating to `StudentSecurityService`, per the two enforcement points in [Authorization](architectural-design.md#authorization).
-- Error envelope: `StudentAlreadyDeactivatedException` maps to `409` / `StatusCode.CONFLICT` in `ExceptionHandlerAdvice`, which the shared Axios instance shows as a toast; the evaluation refusal reuses `PeerEvaluationIllegalArgumentException` (`400`).
+- Error envelope: `StudentAlreadyDeactivatedException` maps to HTTP `409` and `StatusCode.CONFLICT` (both exist) in `ExceptionHandlerAdvice`, which the shared Axios instance shows as a toast; the evaluation refusal reuses `PeerEvaluationIllegalArgumentException` (`400`).
 - Who owes a submission: unchanged (`SubmissionStatusService`, BR-submission-owed); the deactivated student and her teammates' obligation to evaluate her drop out because it already filters on `enabled`.
 - Confirmation dialog: `ElMessageBox.confirm`, as `Teams.vue` and `Sections.vue` use it.
 
@@ -155,19 +181,20 @@ No delta. `enabled` already lives on `PeerEvaluationUser`, which `Student` exten
 | UC-STU-deactivate-student 5a | manual | Cancel at the confirmation sends no request and the status still reads Active |
 | UC-STU-deactivate-student 6a | integration | Deactivating a disabled student returns `409` `CONFLICT`; she stays disabled |
 | UC-STU-deactivate-student 6a | unit (`StudentServiceTest`) | `deactivateStudent` on a disabled student throws `StudentAlreadyDeactivatedException` and does not save |
-| UC-STU-deactivate-student 6b, other course section | integration | An instructor not assigned to her course section and not her course admin gets `403`; she stays active |
+| UC-STU-deactivate-student 6b, other course section | integration | An instructor not assigned to her course section and not her course admin (in the seed, course 3's admin, assigned only to course section 3) gets `403`; she stays active |
 | UC-STU-deactivate-student 6b, student | integration | A student, the target herself included, gets `403` |
 | UC-STU-deactivate-student 6b, unknown id | unit (`StudentSecurityServiceTest`) | `canChangeStudentStatus` returns false for an id that names no student, without throwing |
 | FR-SEC-active-account, open session | integration | A token obtained before deactivation gets `401` on her next request |
 | FR-SEC-active-account, login | integration | HTTP Basic login as the deactivated student gets `401` |
 | Single path | integration | `PUT /students/{studentId}` with `enabled: false` leaves her active |
 | BR-deactivated-student-evaluation, submit (UC-EVA-submit-evaluation 9a) | unit (`EvaluationServiceTest`) | `addPeerEvaluation` and `updatePeerEvaluation` of a disabled evaluatee throw `PeerEvaluationIllegalArgumentException` |
-| BR-deactivated-student-evaluation, report | unit (`EvaluationServiceTest`) | A disabled student with no evaluation that week is left out; with one she is listed; an active student with none is still listed |
-| BR-deactivated-student-evaluation, form | manual | A deactivated teammate does not appear on `SubmitTeamsEvaluations.vue` |
+| BR-deactivated-student-evaluation, report | unit (`EvaluationServiceTest`) | A disabled student with no evaluation that week is left out; with one (her own self-evaluation counts) she is listed; an active student with none is still listed |
+| BR-deactivated-student-evaluation, form | manual | A deactivated teammate does not appear on `SubmitTeamsEvaluations.vue`, and re-submitting a week that held an evaluation of her succeeds and leaves that evaluation stored |
 | BR-submission-owed consequence | integration, existing | `SubmissionStatusServiceIntegrationTest.testAnEvaluationOfADeactivatedTeammateIsNotRequired`, cited, not rewritten |
 
 ## Open questions / risks
 
-- **No in-app reactivation** until UC-STU-reactivate-student is built (OI-65). A mistaken deactivation is undone in the database.
+- **No in-app reactivation** until UC-STU-reactivate-student is built (OI-65). A mistaken deactivation has to be undone in the database. The confirmation still says the account can be reactivated, because the specification says so; until OI-65 closes, that statement is true only of the specification.
+- **A course admin outside the course section cannot reach the button.** `GET /students/{studentId}` (UC-STU-view-student, step 2) admits only the course section's instructors and the student herself. So a course admin who is not listed among them can deactivate through the API but can't open the student's details. That gap predates this design and is left alone; the seed has no such course admin.
 - **Per-request lookup.** The validator adds one primary-key read to every authenticated request. At course scale (tens of concurrent users) this is negligible; not measured.
 - **Frontend flows are checked by hand.** 5a and the teammate list have no automated test, because the repository has no frontend test harness for these pages.
