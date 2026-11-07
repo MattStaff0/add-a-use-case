@@ -1,13 +1,16 @@
 package team.projectpulse.student;
 
+import team.projectpulse.instructor.Instructor;
+import team.projectpulse.section.Section;
 import team.projectpulse.system.UserUtils;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
 
 /**
  * Answers the questions a route asks about one named student: is that student the caller herself
- * ({@code isStudentSelf}), and is the caller an instructor of that student's course section
- * ({@code isCurrentUserInstructorOfStudentSection}).
+ * ({@code isStudentSelf}), is the caller an instructor of that student's course section
+ * ({@code isCurrentUserInstructorOfStudentSection}), and may the caller change whether her account is active
+ * ({@code canChangeStudentStatus}).
  *
  * <p>Every check fails closed: an id that names no row, or a link not yet established, is denied rather than
  * throwing. These methods run inside an {@code AuthorizationManager}, upstream of the {@code DispatcherServlet},
@@ -45,6 +48,26 @@ public class StudentSecurityService {
         }
         return student.getSection().getInstructors().stream()
                 .anyMatch(instructor -> instructor.getId().equals(instructorIdFromJwt));
+    }
+
+    /**
+     * Whether the caller may deactivate (or reactivate) this student: she is the course admin of the student's
+     * course, or an instructor assigned to the student's course section (BR-student-lifecycle). A course admin
+     * need not be listed among the course section's instructors. An id that names no student is a denial.
+     */
+    public boolean canChangeStudentStatus(Integer studentId) {
+        Integer userId = this.userUtils.getUserId();
+        Student student = this.studentRepository.findById(studentId).orElse(null);
+        if (userId == null || student == null) {
+            return false;
+        }
+        Section section = student.getSection();
+        Instructor courseAdmin = section.getCourse().getCourseAdmin();
+        if (courseAdmin != null && userId.equals(courseAdmin.getId())) {
+            return true;
+        }
+        return section.getInstructors().stream()
+                .anyMatch(instructor -> userId.equals(instructor.getId()));
     }
 
 }

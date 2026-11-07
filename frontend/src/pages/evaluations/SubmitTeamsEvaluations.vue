@@ -119,6 +119,7 @@
 </template>
 
 <script setup lang="ts">
+import axios from 'axios'
 import { onMounted, ref } from 'vue'
 import { findStudentsByTeamId } from '@/apis/student'
 import type { Student, FindStudentByTeamIdResponse } from '@/apis/student/types'
@@ -182,7 +183,8 @@ onMounted(async () => {
 async function loadStudents() {
   // On the back end, the page number starts from 0, so subtract 1 here
   const result: FindStudentByTeamIdResponse = await findStudentsByTeamId(teamId.value)
-  students.value = result.data
+  // A deactivated team member is not evaluated (BR-deactivated-student-evaluation)
+  students.value = result.data.filter((student) => student.enabled)
 }
 
 // Load criteria information
@@ -202,9 +204,16 @@ async function prepareStartingPeerEvaluations() {
     previousWeek.value
   )
 
+  // Leave out an evaluation of a team member deactivated since it was submitted: it stays stored, but
+  // re-submitting it would be refused
+  const activeStudentIds = new Set(students.value.map((student) => student.id))
+  const existingEvaluations = result.data.filter((evaluation) =>
+    activeStudentIds.has(evaluation.evaluateeId)
+  )
+
   // If the student has already submitted evaluations for the current week, load them
-  if (result.data.length > 0) {
-    peerEvalutions.value = result.data
+  if (existingEvaluations.length > 0) {
+    peerEvalutions.value = existingEvaluations
     isNewSubmission = false
   } else {
     // If not, create a new set of evaluations
@@ -232,11 +241,11 @@ async function submitPeerEvaluations() {
       const result: SubmitPeerEvaluationResponse = await submitEvaluation(evaluation)
       return result.data
     })
-    isLoading.value = true
-    peerEvalutions.value = await Promise.all(submitPromises) // Wait for all promises to resolve
+    const saved = await saveAll(submitPromises)
+    if (!saved) return
+    peerEvalutions.value = saved
     isNewSubmission = false // Change to update mode
     ElMessage.success('Peer evaluations submitted successfully')
-    isLoading.value = false
 
     // Send an submission confirmation email to the submitter
     await sendPeerEvaluationSubmissionConfirmationEmail(previousWeekRange.value)
@@ -252,10 +261,40 @@ async function updatePeerEvaluations() {
       return result.data
     })
 
-    isLoading.value = true
-    peerEvalutions.value = await Promise.all(submitPromises) // Wait for all promises to resolve
+    const saved = await saveAll(submitPromises)
+    if (!saved) return
+    peerEvalutions.value = saved
     ElMessage.success('Peer evaluations updated successfully')
-    isLoading.value = false
+  }
+}
+
+// Waits for every request, saved or refused, so that a reload never races a save still in flight. Returns the saved
+// evaluations, or undefined when one was refused.
+async function saveAll(requests: Promise<PeerEvaluation>[]): Promise<PeerEvaluation[] | undefined> {
+  isLoading.value = true
+  const results = await Promise.allSettled(requests)
+  isLoading.value = false
+  const refused = results.find(
+    (result): result is PromiseRejectedResult => result.status === 'rejected'
+  )
+  if (refused) {
+    await reloadIfTeamMemberDeactivated(refused.reason)
+    return undefined
+  }
+  return results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
+}
+
+// request.ts has already shown why a 400 was refused. Only when a team member on the form has been deactivated since
+// it was shown (UC-EVA-submit-evaluation 9a) are the evaluations reloaded, which drops hers; the others were saved.
+// Any other refusal, such as a score out of range (4a), leaves the form as it is so the student can correct it.
+async function reloadIfTeamMemberDeactivated(error: unknown) {
+  if (!(axios.isAxiosError(error) && error.response?.status === 400)) {
+    throw error
+  }
+  await loadStudents()
+  const activeStudentIds = new Set(students.value.map((student) => student.id))
+  if (peerEvalutions.value?.some((evaluation) => !activeStudentIds.has(evaluation.evaluateeId))) {
+    await prepareStartingPeerEvaluations()
   }
 }
 </script>

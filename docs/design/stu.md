@@ -65,7 +65,7 @@ classDiagram
   - Deactivating neither saves nor discards the form's other fields.
   - After a `409` (6a), the form reloads the student so the status reads Deactivated.
   - The form still sends `enabled` on save, unchanged, and the server ignores it.
-- [`SubmitTeamsEvaluations.vue`](../../frontend/src/pages/evaluations/SubmitTeamsEvaluations.vue) drops teammates whose `StudentDto.enabled` is false. It drops them both from the teammates it lists and from the existing evaluations it loads for the week, so a re-submission never sends an update for a deactivated teammate. When a submit or update is refused with `400` (UC-EVA-submit-evaluation 9a), it reloads the teammates and evaluations (9a2).
+- [`SubmitTeamsEvaluations.vue`](../../frontend/src/pages/evaluations/SubmitTeamsEvaluations.vue) drops teammates whose `StudentDto.enabled` is false. It drops them both from the teammates it lists and from the existing evaluations it loads for the week, so a re-submission never sends an update for a deactivated teammate. When a submit or update is refused with `400`, it waits for every request to settle and reloads the teammates. Only if one of them on the form has been deactivated (UC-EVA-submit-evaluation 9a) does it reload the evaluations too (9a2); any other refusal, such as an input validation error (4a), leaves the student's input in place.
 - Reused unchanged:
   - `SubmissionStatusService.findOwedItems`, which already skips a disabled student (BR-submission-owed); both `WeeklyReminderScheduler` and `ReminderController` go through it, so she gets no reminders;
   - `MyUserPrincipal.isEnabled` (login);
