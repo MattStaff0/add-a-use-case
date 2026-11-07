@@ -4,6 +4,7 @@ import team.projectpulse.section.Section;
 import team.projectpulse.section.SectionRepository;
 import team.projectpulse.system.UserUtils;
 import team.projectpulse.system.exception.ObjectNotFoundException;
+import team.projectpulse.system.exception.StudentAlreadyDeactivatedException;
 import team.projectpulse.user.userinvitation.UserInvitationService;
 import jakarta.transaction.Transactional;
 import org.springframework.data.domain.Page;
@@ -114,6 +115,23 @@ public class StudentService {
         oldStudent.setEmail(update.getEmail());
 
         return this.studentRepository.save(oldStudent);
+    }
+
+    /**
+     * Deactivates a student (UC-STU-deactivate-student). Her team, account, and submitted work are left alone. The
+     * route rule has already checked that the caller may (6b) for this very id, so the student is loaded by it.
+     *
+     * @throws StudentAlreadyDeactivatedException if someone else deactivated her first (6a); answering success
+     * would tell the caller they did something they didn't
+     */
+    public Student deactivateStudent(Integer studentId) {
+        Student student = this.studentRepository.findById(studentId)
+                .orElseThrow(() -> new ObjectNotFoundException("student", studentId));
+        if (!student.isEnabled()) {
+            throw new StudentAlreadyDeactivatedException();
+        }
+        student.setEnabled(false);
+        return this.studentRepository.save(student);
     }
 
     public void deleteStudent(Integer studentId) {
