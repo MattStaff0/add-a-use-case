@@ -2209,7 +2209,7 @@ Report generating algorithm: N/A
 **Primary Actor:** student
 **Secondary Actors:**
 **Trigger:** The student indicates to submit a peer evaluation for the previous week.
-**Description:** The student wants to submit a peer evaluation for the previous week, so that she can provide feedback and assessment for every team member.
+**Description:** The student wants to submit a peer evaluation for the previous week, so that she can provide feedback and assessment for every team member whose account is active.
 
 **Preconditions:**
 - PRE-1. The student is logged into the system.
