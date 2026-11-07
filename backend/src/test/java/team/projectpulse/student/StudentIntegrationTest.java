@@ -274,6 +274,34 @@ class StudentIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("UC-STU-deactivate-student 6b: an instructor neither assigned to her course section nor her course admin is refused")
+    void testAdminTimOfAnotherCourseCannotDeactivateStudentJohn() throws Exception {
+        // Tim is course 3's admin and assigned only to course section 3; John is in course section 2 of course 1
+        this.mockMvc.perform(patch(this.baseUrl + "/students/4/deactivate").accept(MediaType.APPLICATION_JSON).header(HttpHeaders.AUTHORIZATION, this.adminTimToken))
+                .andExpect(jsonPath("$.flag").value(false))
+                .andExpect(jsonPath("$.code").value(StatusCode.FORBIDDEN))
+                .andExpect(jsonPath("$.message").value("No permission."));
+
+        this.mockMvc.perform(get(this.baseUrl + "/students/4").accept(MediaType.APPLICATION_JSON).header(HttpHeaders.AUTHORIZATION, this.instructorBillToken))
+                .andExpect(jsonPath("$.data.enabled").value(true));
+    }
+
+    @Test
+    @DisplayName("UC-STU-deactivate-student 6b: a student, the target herself included, is refused")
+    void testStudentsCannotDeactivateAStudent() throws Exception {
+        this.mockMvc.perform(patch(this.baseUrl + "/students/4/deactivate").accept(MediaType.APPLICATION_JSON).header(HttpHeaders.AUTHORIZATION, this.studentJohnToken))
+                .andExpect(jsonPath("$.flag").value(false))
+                .andExpect(jsonPath("$.code").value(StatusCode.FORBIDDEN));
+
+        this.mockMvc.perform(patch(this.baseUrl + "/students/4/deactivate").accept(MediaType.APPLICATION_JSON).header(HttpHeaders.AUTHORIZATION, this.studentEricToken))
+                .andExpect(jsonPath("$.flag").value(false))
+                .andExpect(jsonPath("$.code").value(StatusCode.FORBIDDEN));
+
+        this.mockMvc.perform(get(this.baseUrl + "/students/4").accept(MediaType.APPLICATION_JSON).header(HttpHeaders.AUTHORIZATION, this.instructorBillToken))
+                .andExpect(jsonPath("$.data.enabled").value(true));
+    }
+
+    @Test
     void testStudentJohnUpdatesAnotherStudentsInfo() throws Exception {
         Map<String, String> studentDto = new HashMap<>();
         studentDto.put("username", "eric");
