@@ -241,15 +241,9 @@ async function submitPeerEvaluations() {
       const result: SubmitPeerEvaluationResponse = await submitEvaluation(evaluation)
       return result.data
     })
-    isLoading.value = true
-    try {
-      peerEvalutions.value = await Promise.all(submitPromises) // Wait for all promises to resolve
-    } catch (error) {
-      await reloadAfterRefusal(error)
-      return
-    } finally {
-      isLoading.value = false
-    }
+    const saved = await saveAll(submitPromises)
+    if (!saved) return
+    peerEvalutions.value = saved
     isNewSubmission = false // Change to update mode
     ElMessage.success('Peer evaluations submitted successfully')
 
@@ -267,27 +261,41 @@ async function updatePeerEvaluations() {
       return result.data
     })
 
-    isLoading.value = true
-    try {
-      peerEvalutions.value = await Promise.all(submitPromises) // Wait for all promises to resolve
-    } catch (error) {
-      await reloadAfterRefusal(error)
-      return
-    } finally {
-      isLoading.value = false
-    }
+    const saved = await saveAll(submitPromises)
+    if (!saved) return
+    peerEvalutions.value = saved
     ElMessage.success('Peer evaluations updated successfully')
   }
 }
 
-// A refused evaluation (400), e.g. of a team member deactivated after the form was shown (UC-EVA-submit-evaluation
-// 9a): request.ts has shown the reason, so reload the team members and evaluations and let the student try again
-async function reloadAfterRefusal(error: unknown) {
+// Waits for every request, saved or refused, so that a reload never races a save still in flight. Returns the saved
+// evaluations, or undefined when one was refused.
+async function saveAll(requests: Promise<PeerEvaluation>[]): Promise<PeerEvaluation[] | undefined> {
+  isLoading.value = true
+  const results = await Promise.allSettled(requests)
+  isLoading.value = false
+  const refused = results.find(
+    (result): result is PromiseRejectedResult => result.status === 'rejected'
+  )
+  if (refused) {
+    await reloadIfTeamMemberDeactivated(refused.reason)
+    return undefined
+  }
+  return results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
+}
+
+// request.ts has already shown why a 400 was refused. Only when a team member on the form has been deactivated since
+// it was shown (UC-EVA-submit-evaluation 9a) are the evaluations reloaded, which drops hers; the others were saved.
+// Any other refusal, such as a score out of range (4a), leaves the form as it is so the student can correct it.
+async function reloadIfTeamMemberDeactivated(error: unknown) {
   if (!(axios.isAxiosError(error) && error.response?.status === 400)) {
     throw error
   }
   await loadStudents()
-  await prepareStartingPeerEvaluations()
+  const activeStudentIds = new Set(students.value.map((student) => student.id))
+  if (peerEvalutions.value?.some((evaluation) => !activeStudentIds.has(evaluation.evaluateeId))) {
+    await prepareStartingPeerEvaluations()
+  }
 }
 </script>
 
