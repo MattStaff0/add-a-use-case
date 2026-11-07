@@ -1473,6 +1473,9 @@ Details:
 7. Use case ends.
 
 **Extensions:**
+- **5a. The course admin or instructor cancels at the warning instead of confirming:**
+  - 5a1. The system makes no change to the student's account and returns the course admin or instructor to the student's details.
+  - 5a2. Use case ends.
 - **6a. The student's account is already deactivated** (e.g., another course admin or instructor deactivated her after step 2):
   - 6a1. The system makes no change and informs the course admin or instructor that the student is already deactivated.
   - 6a2. Use case ends.
